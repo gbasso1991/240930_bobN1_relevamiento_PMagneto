@@ -24,8 +24,11 @@ Calcula el tiempo de transicion de fase utilizando criterio en T y en dT/dt
 Toma la hora guardada en archivos (1er fila a comentario, por lo que tmb se modifico OWON_con_python.py)
 Interpola t y T del templog entre tiempo de las medidas (dt=0.01, dT=0.01) y asigna Temperatura a cada muestra en base a eso
 
-11 sept 
+11 Sept 25
 Optimizado para calcular la pendiente del ciclo del paramagneto
+
+04 Oct 24
+Actualizada constante de calibracion del paramagneto, calculada para bobina captora de N=1 espira
 '''
 import time
 start_time = time.time()
@@ -59,10 +62,10 @@ todos=1
 un_solo_fondo=1
 resto_fondo=1
 templog = 0
-nombre='*PMag'
+nombre='*NE5X'
 Analisis_de_Fourier = 1 # sobre las señales, imprime espectro de señal muestra
-N_armonicos_impares = 1.2
-concentracion =10*1e3 #[concentracion]= g/m^3 (1 g/l == 1e3 g/m^3) (Default = 10000 g/m^3)
+N_armonicos_impares = 10
+concentracion =47*1e3 #[concentracion]= g/m^3 (1 g/l == 1e3 g/m^3) (Default = 10000 g/m^3)
 capsula_glucosa=0   # capsula para solventes organicos
 detector_ciclos_descartables=True #en funcion a Mag max para evitar guardar/promediar con ciclos in/out
 Ciclo_promedio=1
@@ -93,7 +96,7 @@ ordenada_HvsI = 1297.0 # A/m
 # =============================================================================
 #Calibracion de la magnetizacion: cte que dimensionaliza a M en Vs --> A/m
 xi_patron_Dy2O3_v = 5.351e-3 #adimensional. Valor de VSM sobre capsula
-pendiente_patron_Dy2O3 = ufloat(2.2518683656184745e-14,9.896762833171708e-16) #Vsm/A
+pendiente_patron_Dy2O3 = ufloat(4.584443008514465e-14,4.441474310168033e-15) #Vsm/A
 C_Vs_to_Am_magnetizacion = xi_patron_Dy2O3_v/pendiente_patron_Dy2O3.nominal_value #A/mVs
 if capsula_glucosa ==1:
     C_Vs_to_Am_magnetizacion = C_Vs_to_Am_magnetizacion*0.506
@@ -145,6 +148,7 @@ cociente_f2_f0 = []
 fecha_nombre = datetime.today().strftime('%Y%m%d_%H%M%S')
 fecha_graf = time.strftime('%Y_%m_%d', time.localtime())
 
+pendientes=[]
 #%% Seleccion de carpeta con archivos via interfaz de usuario
 root = tk.Tk()
 root.withdraw()
@@ -432,12 +436,10 @@ for k in range(len(fnames_m)):
     t_f_m , fem_campo_m , R_m , dt_m = promediado_ciclos(t_m_3,v_r_m_3,Resta_m_3,frec_final_m,N_ciclos_m)
 
     '''
-    Integro los ciclos: calcula sumas acumuladas y
-    convierte a fem a campo y magnetizacion
+    Integro los ciclos: calcula sumas acumuladas y convierte a fem a campo y magnetizacion
     La integral de la fem_campo_m es proporcional a H
     [C_norm_campo]=[A]*[1/m]+[A/m]=A/m - Cte que dimensionaliza
-    al campo en A/m a partir de la calibracion realizada
-    sobre la bobina del RF
+    al campo en A/m a partir de la calibracion realizada sobre la bobina del RF
     '''
     C_norm_campo=Idc[k]*pendiente_HvsI+ordenada_HvsI
     campo_ua0_m = dt_m*cumulative_trapezoid(fem_campo_m,initial=0) #[campo_ua0_c]=V*s
@@ -481,11 +483,11 @@ for k in range(len(fnames_m)):
         # fig_fourier.savefig(fnames_m[k]+'_Espectro.png',dpi=200,facecolor='w')
         # fig2_fourier.savefig(fnames_m[k]+'_Rec_impar.png',dpi=200,facecolor='w')
 
-        print(f'\nFrecuencia fundamental referencia: {espectro_ref[0]:.2f} Hz')
-        print(f'\nFrecuencia fundamental muestra: {f_0:.2f} Hz')
-        print(f'Duracion de señal recortada: {(t_m_3[-1]-t_m_3[0]):.2e}')
+        print(f'\nf0 campo: {espectro_ref[0]:.2f} Hz')
+        print(f'\nf0 muestra: {f_0:.2f} Hz')
+        print(f'Delta t: {(t_m_3[-1]-t_m_3[0]):.2e}')
         print(f'N de periodos enteros: {N_ciclos_m}')
-        print(f'Num de samples: {len(Resta_m_3)}')
+        print(f'Num de puntos de la seña: {len(Resta_m_3)}')
 
         #CALCULO SAR
         Hmax=max(campo_m)
@@ -513,6 +515,14 @@ for k in range(len(fnames_m)):
     else:
         #Sin analisis de Fourier, solamente acomodo la polaridad de la señal de la muestra.
         t_f_m , fem_campo_m , fem_mag_m , dt_m = promediado_ciclos(t_m_3,v_r_m_3,Resta_m_3*polaridad,frec_final_m,N_ciclos_m)
+    
+    # 4 Oct 24 pendiente
+    def lineal(x,m,n):
+        return m*x+n
+    if not k==len(fnames_m)-1:
+        (m,n),_=curve_fit(lineal,campo_m,magnetizacion_ua_m_filtrada)
+        pendientes.append(m)
+    
     '''
     Asigno unidades a la magnetizacion utilizando la calibracion que esta al principio del script
     '''
@@ -652,6 +662,7 @@ for k in range(len(fnames_m)):
     # output_file = os.path.join(output_dir, fnames_m[k][:-4] + '_ciclo_H_M.txt')
     # ascii.write(ciclo_out,output_file,names=encabezado,overwrite=True,delimiter='\t',formats=formato)
 
+np.savetxt(os.path.join(output_dir,'pendientes.txt'),np.array(pendientes),fmt='%e' )
 
 plt.close('all')
 #%% DETECTOR CICLOS DESCARTABLES
@@ -954,152 +965,138 @@ else:
 output_file2=os.path.join(output_dir,os.path.commonprefix(list(fnames_m))+'_resultados.txt')
 ascii.write(resultados_out,output_file2,names=encabezado,overwrite=True,delimiter='\t',formats=formato)
 
-# #%% tau/SAR vs Temperatura or tau/SAR vs indx
-# if templog:
-#     # Definir el mapa de colores (jet en este caso)
-#     cmap = mpl.colormaps['jet'] #'viridis'
-#     # Normalizar las temperaturas al rango [0, 1] para obtener colores
-#     normalized_temperaturas = (np.array(temp_m) - np.array(temp_m).min()) / (np.array(temp_m).max() - np.array(temp_m).min())
-#     # Obtener los colores correspondientes a las temperaturas normalizadas
-#     colors = cmap(normalized_temperaturas)
+#%% tau/SAR vs Temperatura or tau/SAR vs indx
+if templog:
+    # Definir el mapa de colores (jet en este caso)
+    cmap = mpl.colormaps['jet'] #'viridis'
+    # Normalizar las temperaturas al rango [0, 1] para obtener colores
+    normalized_temperaturas = (np.array(temp_m) - np.array(temp_m).min()) / (np.array(temp_m).max() - np.array(temp_m).min())
+    # Obtener los colores correspondientes a las temperaturas normalizadas
+    colors = cmap(normalized_temperaturas)
 
-#     fig, ax = plt.subplots(2, 1, figsize=(10,5), constrained_layout=True,sharex=True)
-#     ax[0].scatter(temp_m, Tau,c=colors, marker='o', label=r'$\tau$')
-#     ax[0].plot(temp_m, Tau,zorder=-1)
-#     ax[0].set_ylabel(r'$\tau$ (s)')
+    fig, ax = plt.subplots(2, 1, figsize=(10,5), constrained_layout=True,sharex=True)
+    ax[0].scatter(temp_m, Tau,c=colors, marker='o', label=r'$\tau$')
+    ax[0].plot(temp_m, Tau,zorder=-1)
+    ax[0].set_ylabel(r'$\tau$ (s)')
 
-#     ax[1].scatter(temp_m, SAR,c=colors,marker= 'o', label=f'{concentracion/1000:.2f} g/L')
-#     ax[1].plot(temp_m, SAR,zorder=-1)
-#     ax[1].set_xlabel('T (°C)')
-#     ax[1].set_ylabel('SAR (W/g)')
+    ax[1].scatter(temp_m, SAR,c=colors,marker= 'o', label=f'{concentracion/1000:.2f} g/L')
+    ax[1].plot(temp_m, SAR,zorder=-1)
+    ax[1].set_xlabel('T (°C)')
+    ax[1].set_ylabel('SAR (W/g)')
 
-#     for a in ax:
-#         a.axvspan(temperatura_interpolada[indx_TF_interp[0][0]],temperatura_interpolada[indx_TF_interp[0][-1]],color='tab:red',alpha=0.4,label=f'T Fase: {t_tf} s',zorder=-2)
-#         a.legend(ncol=2)
-#         a.grid()
+    for a in ax:
+        a.axvspan(temperatura_interpolada[indx_TF_interp[0][0]],temperatura_interpolada[indx_TF_interp[0][-1]],color='tab:red',alpha=0.4,label=f'T Fase: {t_tf} s',zorder=-2)
+        a.legend(ncol=2)
+        a.grid()
 
-#     ax[0].set_title(f'\n{nombre.strip("*")} - {frec_nombre[0]/1000:>3.0f} kHz - {round(np.mean(Campo_maximo)/1e3):>4.1f} kA/m')
-#     plt.suptitle(r'$\tau$ - SAR',fontsize=15)
-#     plt.savefig(os.path.join(output_dir,os.path.commonprefix(list(fnames_m))+'_tau_SAR_vs_T.png'),dpi=300,facecolor='w')
+    ax[0].set_title(f'\n{nombre.strip("*")} - {frec_nombre[0]/1000:>3.0f} kHz - {round(np.mean(Campo_maximo)/1e3):>4.1f} kA/m')
+    plt.suptitle(r'$\tau$ - SAR',fontsize=15)
+    plt.savefig(os.path.join(output_dir,os.path.commonprefix(list(fnames_m))+'_tau_SAR_vs_T.png'),dpi=300,facecolor='w')
 
-#     #% tau & SAR vs tiempo
-#     fig, ax = plt.subplots(2, 1, figsize=(10,6), constrained_layout=True,sharex=True)
-#     ax[0].scatter(time_m, Tau,c=colors, marker='o', label=r'$\tau$')
-#     ax[0].plot(time_m, Tau,zorder=-1)
-#     ax[0].set_ylabel(r'$\tau$ (ns)')
+    #% tau & SAR vs tiempo
+    fig, ax = plt.subplots(2, 1, figsize=(10,6), constrained_layout=True,sharex=True)
+    ax[0].scatter(time_m, Tau,c=colors, marker='o', label=r'$\tau$')
+    ax[0].plot(time_m, Tau,zorder=-1)
+    ax[0].set_ylabel(r'$\tau$ (ns)')
 
-#     ax[1].scatter(time_m, SAR,c=colors,marker= 'o', label=f'C = {concentracion/1000:.2f} g/L')
-#     ax[1].plot(time_m, SAR,zorder=-1)
-#     ax[1].set_xlabel('t (s)')
-#     ax[1].set_ylabel('SAR (W/g)')
+    ax[1].scatter(time_m, SAR,c=colors,marker= 'o', label=f'C = {concentracion/1000:.2f} g/L')
+    ax[1].plot(time_m, SAR,zorder=-1)
+    ax[1].set_xlabel('t (s)')
+    ax[1].set_ylabel('SAR (W/g)')
 
-#     for a in ax:
-#         a.axvspan(tiempo_interpolado[indx_TF_interp[0][0]],tiempo_interpolado[indx_TF_interp[0][-1]],color='tab:red',alpha=0.5,label=f'T Fase: {t_tf} s',zorder=-2)
-#         a.legend(ncol=2)
-#         a.grid()
-#     ax[0].set_title(f'\n{nombre.strip("*")} - {frec_nombre[0]/1000:>3.0f} kHz - {round(np.mean(Campo_maximo)/1e3):>4.1f} kA/m')
-#     plt.suptitle(r'$\tau$ - SAR',fontsize=15)
-#     plt.savefig(os.path.join(output_dir,os.path.commonprefix(list(fnames_m))+'_tau_SAR_vs_tiempo.png'),dpi=300,facecolor='w')
+    for a in ax:
+        a.axvspan(tiempo_interpolado[indx_TF_interp[0][0]],tiempo_interpolado[indx_TF_interp[0][-1]],color='tab:red',alpha=0.5,label=f'T Fase: {t_tf} s',zorder=-2)
+        a.legend(ncol=2)
+        a.grid()
+    ax[0].set_title(f'\n{nombre.strip("*")} - {frec_nombre[0]/1000:>3.0f} kHz - {round(np.mean(Campo_maximo)/1e3):>4.1f} kA/m')
+    plt.suptitle(r'$\tau$ - SAR',fontsize=15)
+    plt.savefig(os.path.join(output_dir,os.path.commonprefix(list(fnames_m))+'_tau_SAR_vs_tiempo.png'),dpi=300,facecolor='w')
 
-#     #% Hc & Mr & xi vs T
-#     fig, ax = plt.subplots(3, 1, figsize=(9,7), constrained_layout=True,sharex=True)
-#     ax[0].scatter(temp_m,Coercitividad_kAm,c=colors, marker='o',label='H$_C$')
-#     ax[0].plot(temp_m,Coercitividad_kAm,zorder=-1)
-#     ax[0].set_ylabel('Campo Coercitivo (kA/m)')
+    #% Hc & Mr & xi vs T
+    fig, ax = plt.subplots(3, 1, figsize=(9,7), constrained_layout=True,sharex=True)
+    ax[0].scatter(temp_m,Coercitividad_kAm,c=colors, marker='o',label='H$_C$')
+    ax[0].plot(temp_m,Coercitividad_kAm,zorder=-1)
+    ax[0].set_ylabel('Campo Coercitivo (kA/m)')
 
-#     ax[1].scatter(temp_m, xi_M_0,c=colors, marker='s',label='$\chi$ a M=0')
-#     ax[1].plot(temp_m, xi_M_0,zorder=-1)
-#     ax[1].set_ylabel('Susceptibilidad a M=0')
+    ax[1].scatter(temp_m, xi_M_0,c=colors, marker='s',label='$\chi$ a M=0')
+    ax[1].plot(temp_m, xi_M_0,zorder=-1)
+    ax[1].set_ylabel('Susceptibilidad a M=0')
 
-#     ax[2].scatter(temp_m, Remanencia_Am,c=colors, marker='D',label='M$_R$')
-#     ax[2].plot(temp_m, Remanencia_Am,zorder=-1)
-#     ax[2].set_ylabel('Magnetizacion Remanente')
-#     ax[2].set_xlabel('T (°C)')
+    ax[2].scatter(temp_m, Remanencia_Am,c=colors, marker='D',label='M$_R$')
+    ax[2].plot(temp_m, Remanencia_Am,zorder=-1)
+    ax[2].set_ylabel('Magnetizacion Remanente')
+    ax[2].set_xlabel('T (°C)')
 
-#     for a in ax:
-#         a.axvspan(temperatura_interpolada[indx_TF_interp[0][0]],temperatura_interpolada[indx_TF_interp[0][-1]],color='tab:red',alpha=0.4,label=f'T Fase: {t_tf} s',zorder=-2)
-#         a.legend(ncol=2)
-#         a.grid()
+    for a in ax:
+        a.axvspan(temperatura_interpolada[indx_TF_interp[0][0]],temperatura_interpolada[indx_TF_interp[0][-1]],color='tab:red',alpha=0.4,label=f'T Fase: {t_tf} s',zorder=-2)
+        a.legend(ncol=2)
+        a.grid()
 
-#     ax[0].set_title(f'\n{nombre.strip("*")} - {frec_nombre[0]/1000:>3.0f} kHz - {round(np.mean(Campo_maximo)/1e3):>4.1f} kA/m')
-#     plt.suptitle(r'H$_C$ - M$_R$ - $\chi_{M=0}$',fontsize=15)
-#     plt.savefig(os.path.join(output_dir,os.path.commonprefix(list(fnames_m))+'_Hc_Mr_xi_vs_T.png'),dpi=300,facecolor='w')
-#     #% Hc & Mr & xi vs tiempo
+    ax[0].set_title(f'\n{nombre.strip("*")} - {frec_nombre[0]/1000:>3.0f} kHz - {round(np.mean(Campo_maximo)/1e3):>4.1f} kA/m')
+    plt.suptitle(r'H$_C$ - M$_R$ - $\chi_{M=0}$',fontsize=15)
+    plt.savefig(os.path.join(output_dir,os.path.commonprefix(list(fnames_m))+'_Hc_Mr_xi_vs_T.png'),dpi=300,facecolor='w')
+    #% Hc & Mr & xi vs tiempo
 
-#     fig, ax = plt.subplots(3, 1, figsize=(9,7), constrained_layout=True,sharex=True)
-#     ax[0].scatter(time_m,Coercitividad_kAm,c=colors, marker='o',label='H$_C$')
-#     ax[0].plot(time_m,Coercitividad_kAm,zorder=-1)
-#     ax[0].set_ylabel('Campo Coercitivo (kA/m)')
+    fig, ax = plt.subplots(3, 1, figsize=(9,7), constrained_layout=True,sharex=True)
+    ax[0].scatter(time_m,Coercitividad_kAm,c=colors, marker='o',label='H$_C$')
+    ax[0].plot(time_m,Coercitividad_kAm,zorder=-1)
+    ax[0].set_ylabel('Campo Coercitivo (kA/m)')
 
-#     ax[1].scatter(time_m, xi_M_0,c=colors, marker='s',label='$\chi$ a M=0')
-#     ax[1].plot(time_m, xi_M_0,zorder=-1)
-#     ax[1].set_ylabel('Susceptibilidad a M=0')
+    ax[1].scatter(time_m, xi_M_0,c=colors, marker='s',label='$\chi$ a M=0')
+    ax[1].plot(time_m, xi_M_0,zorder=-1)
+    ax[1].set_ylabel('Susceptibilidad a M=0')
 
-#     ax[2].scatter(time_m, Remanencia_Am,c=colors, marker='D',label='M$_R$')
-#     ax[2].plot(time_m, Remanencia_Am,zorder=-1)
-#     ax[2].set_ylabel('Magnetizacion Remanente')
-#     ax[2].set_xlabel('t (s)')
+    ax[2].scatter(time_m, Remanencia_Am,c=colors, marker='D',label='M$_R$')
+    ax[2].plot(time_m, Remanencia_Am,zorder=-1)
+    ax[2].set_ylabel('Magnetizacion Remanente')
+    ax[2].set_xlabel('t (s)')
 
-#     for a in ax:
-#         a.axvspan(tiempo_interpolado[indx_TF_interp[0][0]],tiempo_interpolado[indx_TF_interp[0][-1]],color='tab:red',alpha=0.5,label=f'T Fase: {t_tf} s',zorder=-2)
-#         a.legend(ncol=2)
-#         a.grid()
+    for a in ax:
+        a.axvspan(tiempo_interpolado[indx_TF_interp[0][0]],tiempo_interpolado[indx_TF_interp[0][-1]],color='tab:red',alpha=0.5,label=f'T Fase: {t_tf} s',zorder=-2)
+        a.legend(ncol=2)
+        a.grid()
         
-#     ax[0].set_title(f'\n{nombre.strip("*")} - {frec_nombre[0]/1000:>3.0f} kHz - {round(np.mean(Campo_maximo)/1e3):>4.1f} kA/m')
-#     plt.suptitle(r'H$_C$ - M$_R$ - $\chi_{M=0}$',fontsize=15)
-#     plt.savefig(os.path.join(output_dir,os.path.commonprefix(list(fnames_m))+'_Hc_Mr_xi_vs_T.png'),dpi=300,facecolor='w')
+    ax[0].set_title(f'\n{nombre.strip("*")} - {frec_nombre[0]/1000:>3.0f} kHz - {round(np.mean(Campo_maximo)/1e3):>4.1f} kA/m')
+    plt.suptitle(r'H$_C$ - M$_R$ - $\chi_{M=0}$',fontsize=15)
+    plt.savefig(os.path.join(output_dir,os.path.commonprefix(list(fnames_m))+'_Hc_Mr_xi_vs_T.png'),dpi=300,facecolor='w')
 
 
-# else:
-#     # Tau, SAR
-#     fig, ax = plt.subplots(2, 1, figsize=(10,5), constrained_layout=True,sharex=True)
-#     ax[0].plot(np.arange(len(Tau)), Tau,'o-',label=r'$\tau$')
-#     ax[0].axhline(tau_all.nominal_value,0,1,c='r',ls='-.',label=rf'$<\tau>$ = {tau_all:.1uf} ns')
-#     ax[0].axhspan(tau_all.nominal_value-tau_all.std_dev,tau_all.nominal_value+tau_all.std_dev, xmin=0, xmax=1,color='tab:red',alpha=0.4)
-#     ax[0].set_ylabel(r'$\tau$ (ns)')
-#     ax[0].set_title(f'\n{nombre.strip("*")} - {frec_nombre[0]/1000:>3.0f} kHz - {round(np.mean(Campo_maximo)/1e3):>4.1f} kA/m')
-#     ax[1].plot(np.arange(len(SAR)), SAR,'o-', label=f'C = {concentracion/1000:.2f} g/L')
-#     ax[1].axhline(SAR_all.nominal_value,0,1,c='g',ls='-.',label=f'$<$SAR$>$ = {SAR_all:.1uf} W/g')
-#     ax[1].axhspan(SAR_all.nominal_value-SAR_all.std_dev,SAR_all.nominal_value+SAR_all.std_dev, xmin=0, xmax=1,color='tab:green',alpha=0.4)
+else:
+    # Tau, SAR
+    fig, ax = plt.subplots(2, 1, figsize=(10,5), constrained_layout=True,sharex=True)
+    ax[0].plot(np.arange(len(Tau)), Tau,'o-',label=r'$\tau$')
+    ax[0].axhline(tau_all.nominal_value,0,1,c='r',ls='-.',label=rf'$<\tau>$ = {tau_all:.1uf} ns')
+    ax[0].axhspan(tau_all.nominal_value-tau_all.std_dev,tau_all.nominal_value+tau_all.std_dev, xmin=0, xmax=1,color='tab:red',alpha=0.4)
+    ax[0].set_ylabel(r'$\tau$ (ns)')
+    ax[0].set_title(f'\n{nombre.strip("*")} - {frec_nombre[0]/1000:>3.0f} kHz - {round(np.mean(Campo_maximo)/1e3):>4.1f} kA/m')
+    ax[1].plot(np.arange(len(SAR)), SAR,'o-', label=f'C = {concentracion/1000:.2f} g/L')
+    ax[1].axhline(SAR_all.nominal_value,0,1,c='g',ls='-.',label=f'$<$SAR$>$ = {SAR_all:.1uf} W/g')
+    ax[1].axhspan(SAR_all.nominal_value-SAR_all.std_dev,SAR_all.nominal_value+SAR_all.std_dev, xmin=0, xmax=1,color='tab:green',alpha=0.4)
     
-#     ax[1].set_xlabel('indx')
-#     ax[1].set_ylabel('SAR (W/g)')
-#     for a in ax:
-#         a.legend(ncol=2)
-#         a.grid()
-#     plt.suptitle(r'$\tau$ - SAR',fontsize=15)
-#     plt.savefig(os.path.join(output_dir,os.path.commonprefix(list(fnames_m))+'_tau_SAR_vs_indx.png'),dpi=300,facecolor='w')
-#     plt.show()
-#     # # Hc, Mr, Xi
-#     # fig2, ax = plt.subplots(3, 1, figsize=(9,7), constrained_layout=True,sharex=True)
-#     # ax[0].plot(np.arange(len(Coercitividad_kAm)),Coercitividad_kAm,'o-',label='H$_C$')
-#     # ax[0].set_ylabel('Campo Coercitivo (kA/m)')
-#     # ax[0].set_title(f'\n{nombre.strip("*")} - {frec_nombre[0]/1000:>3.0f} kHz - {round(np.mean(Campo_maximo)/1e3):>4.1f} kA/m')
-#     # ax[1].plot(np.arange(len(xi_M_0)), xi_M_0,'s-',label='$\chi$ a M=0')
-#     # ax[1].set_ylabel('Susceptibilidad a M=0')
-#     # ax[2].plot(np.arange(len(Remanencia_Am)), Remanencia_Am,'D-',label='M$_R$')
-#     # ax[2].set_ylabel('Magnetizacion Remanente')
-#     # ax[2].set_xlabel('indx')
-#     # for a in ax:
-#     #     a.legend(ncol=2)
-#     #     a.grid()
-#     # plt.suptitle(r'H$_C$ - M$_R$ - $\chi_{M=0}$',fontsize=15)
-#     # plt.savefig(os.path.join(output_dir,os.path.commonprefix(list(fnames_m))+'_Hc_Mr_xi_vs_indx.png'),dpi=300,facecolor='w')
+    ax[1].set_xlabel('indx')
+    ax[1].set_ylabel('SAR (W/g)')
+    for a in ax:
+        a.legend(ncol=2)
+        a.grid()
+    plt.suptitle(r'$\tau$ - SAR',fontsize=15)
+    plt.savefig(os.path.join(output_dir,os.path.commonprefix(list(fnames_m))+'_tau_SAR_vs_indx.png'),dpi=300,facecolor='w')
+    plt.show()
+    # # Hc, Mr, Xi
+    # fig2, ax = plt.subplots(3, 1, figsize=(9,7), constrained_layout=True,sharex=True)
+    # ax[0].plot(np.arange(len(Coercitividad_kAm)),Coercitividad_kAm,'o-',label='H$_C$')
+    # ax[0].set_ylabel('Campo Coercitivo (kA/m)')
+    # ax[0].set_title(f'\n{nombre.strip("*")} - {frec_nombre[0]/1000:>3.0f} kHz - {round(np.mean(Campo_maximo)/1e3):>4.1f} kA/m')
+    # ax[1].plot(np.arange(len(xi_M_0)), xi_M_0,'s-',label='$\chi$ a M=0')
+    # ax[1].set_ylabel('Susceptibilidad a M=0')
+    # ax[2].plot(np.arange(len(Remanencia_Am)), Remanencia_Am,'D-',label='M$_R$')
+    # ax[2].set_ylabel('Magnetizacion Remanente')
+    # ax[2].set_xlabel('indx')
+    # for a in ax:
+    #     a.legend(ncol=2)
+    #     a.grid()
+    # plt.suptitle(r'H$_C$ - M$_R$ - $\chi_{M=0}$',fontsize=15)
+    # plt.savefig(os.path.join(output_dir,os.path.commonprefix(list(fnames_m))+'_Hc_Mr_xi_vs_indx.png'),dpi=300,facecolor='w')
     
-    
-    
-    
-#%% Pendiente
-from scipy.optimize import curve_fit
-def lineal(x,m,n):
-    return m*x+n
-pendientes=[]
- 
-for i in range(len(fnames_m)):
-    (m,n),_=curve_fit(lineal,Ciclos_eje_H[i],Ciclos_eje_M_filt[i])
-    pendientes.append(m)
-
-np.savetxt(os.path.join(output_dir,'pendientes.txt'),np.array(pendientes),fmt='%e' )
 
 # print(f'''tau = {tau_all} s
 # SAR = {SAR_all:.0f} W/g
